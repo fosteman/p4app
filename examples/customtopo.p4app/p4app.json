@@ -2,7 +2,7 @@
   "program": "simple_router.p4",
   "language": "p4-16",
   "targets": {
-      "multiswitch": {
+    "multiswitch": {
       "topo_module": "mytopo",
       "controller_module": "mycontroller",
       "procrunner_module": "myprocrunner",
@@ -10,13 +10,13 @@
       "links": [["h1", "s1"], ["s1", "s2"], ["s2", "h2", 50]],
       "hosts": {
         "h1": {
-            "cmd": "python echo_server.py $port",
-            "startup_sleep": 0.2,
-            "wait": false
+          "cmd": "python echo_server.py $port",
+          "startup_sleep": 0.2,
+          "wait": false
         },
         "h2": {
-            "cmd": "python echo_client.py h1 $port $echo_msg",
-            "wait": true
+          "cmd": "python echo_client.py h1 $port $echo_msg",
+          "wait": false
         }
       },
       "parameters": {
