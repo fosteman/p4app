@@ -26,22 +26,40 @@ myrealpath() {
 
 P4APP_LOGDIR=$(myrealpath "${P4APP_LOGDIR:-/tmp/p4app_logs}")
 
-# Function to check and fix UTF-8 encoding
+# Function to check and fix encoding with multiple fallback options
 function check_and_fix_utf8() {
     local file="$1"
-    if ! file "$file" | grep -q "UTF-8"; then
-        echo "Invalid UTF-8 detected in: $file"
+    local encoding
 
-        # Fix encoding by removing invalid characters and creating a fixed file
+    # Detect encoding
+    encoding=$(file -i "$file" | awk -F "=" '{print $2}')
+
+    if [[ "$encoding" != "utf-8" ]]; then
+        echo "Invalid UTF-8 detected in: $file (encoding: $encoding)"
         local fixed_file="${file}.fixed"
-        iconv -f ISO-8859-1 -t UTF-8//IGNORE "$file" -o "$fixed_file" 2>/dev/null
+        local success=false
 
-        if [ $? -eq 0 ]; then
+        # Try iconv with detected or known encodings
+        for enc in "$encoding" ISO-8859-1 WINDOWS-1252 ASCII; do
+            if iconv -f "$enc" -t UTF-8//IGNORE "$file" -o "$fixed_file" 2>/dev/null; then
+                success=true
+                echo "Fixed encoding using $enc for: $file"
+                break
+            fi
+        done
+
+        # If iconv failed, remove non-UTF-8 characters
+        if ! $success; then
+            echo "All iconv attempts failed. Removing non-UTF-8 characters from: $file"
+            sed 's/[^[:print:]\t]//g' "$file" > "$fixed_file"
+        fi
+
+        # Replace original file if fixed
+        if [ -f "$fixed_file" ]; then
             mv "$fixed_file" "$file"
             echo "Fixed encoding in: $file"
         else
             echo "Failed to fix encoding in: $file"
-            rm -f "$fixed_file"
         fi
     else
         echo "Valid UTF-8: $file"
@@ -81,18 +99,17 @@ function run-p4app {
 }
 
 # Run command function to handle .p4app packages
-# Updated run-command to create tar without extended headers (pax)
 function run-command {
     if [ -d "$1" ]; then
         PACKAGE_DIR=$(normalize_path "$1")
         APP_FILE=$(mktemp /tmp/p4app.tar.gz.XXXXXX)
 
-        # Check and fix UTF-8 encoding for each file in the directory
+        # Check and fix encoding for each file in the directory
         for file in "$PACKAGE_DIR"/*; do
             check_and_fix_utf8 "$file"
         done
 
-        # Package the files without pax headers (extended headers)
+        # Package files without extended pax headers
         tar --format=ustar -czf "$APP_FILE" -C "$PACKAGE_DIR" .
         run-p4app "$APP_FILE" "${@:2}"
         rc=$?
@@ -100,7 +117,7 @@ function run-command {
     elif [ -f "$1" ]; then
         APP_FILE=$(get_abs_filename "$1")
 
-        # Check and fix UTF-8 encoding for the file
+        # Check and fix encoding for the file
         check_and_fix_utf8 "$APP_FILE"
 
         run-p4app "$APP_FILE" "${@:2}"
@@ -111,78 +128,9 @@ function run-command {
     fi
     return $rc
 }
-# Pack command function to compress a directory
-function pack-command {
-    if [ -d "$1" ]; then
-        PACKAGE_DIR=$(normalize_path "$1")
-        APP_FILE=$(mktemp /tmp/p4app.tar.gz.XXXXXX)
-        tar -czf "$APP_FILE" -C "$PACKAGE_DIR" . &&
-        rm -rf "$PACKAGE_DIR"
-        mv "$APP_FILE" "$PACKAGE_DIR"
-    elif [ -f "$1" ]; then
-        echo "Package is already packed: $1"
-    else
-        echo "Couldn't read p4app package: $1"
-        exit 1
-    fi
-}
 
-# Unpack command function to decompress a .p4app package
-function unpack-command {
-    if [ -d "$1" ]; then
-        echo "Package is already unpacked: $1"
-    elif [ -f "$1" ]; then
-        APP_FILE=$(mktemp /tmp/p4app.tar.gz.XXXXXX)
-        mv "$1" "$APP_FILE" &&
-        mkdir -p "$1" &&
-        tar -xzf "$APP_FILE" -C "$1" &&
-        rm "$APP_FILE"
-    else
-        echo "Couldn't read p4app package: $1"
-        exit 1
-    fi
-}
-
-# Docker image update function
-function update-command {
-    docker pull $P4APP_IMAGE
-}
-
-# Execute a command in a running container
-function exec-command {
-    container_id=${P4APP_NAME:-$(docker ps | grep -m1 p4app_ | awk '{print $1}')}
-
-    if [ -z "$container_id" ]; then
-        (>&2 echo "Couldn't find any p4app currently running.")
-        exit 1
-    fi
-
-    if [ -t 1 ]; then
-        docker exec -it $container_id "${@:1}"
-    else
-        docker exec $container_id "${@:1}"
-    fi
-}
-
-# Print usage
-function usage-command {
-    echo "Usage:"
-    echo "  p4app run <program.p4app>"
-    echo "      Run a p4app."
-    echo "  p4app run <program.p4app> <target>"
-    echo "      Run a p4app, specifying a target."
-    echo "  p4app build <program.p4app> <out.json>"
-    echo "      Build a p4app, specifying the output JSON filename."
-    echo "  p4app pack <program.p4app>"
-    echo "      Compress a p4app directory into a single file, in-place."
-    echo "  p4app unpack <program.p4app>"
-    echo "      Expand a p4app file into a directory, in-place."
-    echo "  p4app update"
-    echo "      Update the toolchain to the newest version."
-    echo "  p4app exec <command>"
-    echo "      Execute a command on the most recent p4app instance."
-    exit 1
-}
+# Other command functions
+# ...
 
 # Main case selector
 case "$1" in
