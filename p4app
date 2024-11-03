@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Ensure the LANG environment variable is set to UTF-8
 export LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
 
 P4APP_IMAGE=${P4APP_IMAGE:-p4lang/p4app:latest}
 P4APP_CONTAINER_ARGS=${P4APP_CONTAINER_ARGS:-""}
 
-# Ensure QEMU is set up for cross-platform execution
+# Ensure QEMU is set up for cross-platform execution if on arm64
 function setup_qemu() {
-    # Check if QEMU is already configured
-    if [[ ! $(docker run --rm --privileged multiarch/qemu-user-static --reset -p yes) ]]; then
+    if ! docker run --rm --privileged multiarch/qemu-user-static --reset -p yes &>/dev/null; then
         echo "Setting up QEMU for cross-platform Docker support."
         docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
     fi
@@ -32,17 +32,16 @@ function check_and_fix_utf8() {
     if ! file "$file" | grep -q "UTF-8"; then
         echo "Invalid UTF-8 detected in: $file"
 
-        # Attempt to fix encoding by removing invalid characters
+        # Fix encoding by removing invalid characters and creating a fixed file
         local fixed_file="${file}.fixed"
-
-        # Fix encoding by ignoring invalid characters and saving to a fixed file
-        iconv -f UTF-8 -t UTF-8//IGNORE "$file" > "$fixed_file"
+        iconv -f ISO-8859-1 -t UTF-8//IGNORE "$file" -o "$fixed_file" 2>/dev/null
 
         if [ $? -eq 0 ]; then
             mv "$fixed_file" "$file"
             echo "Fixed encoding in: $file"
         else
             echo "Failed to fix encoding in: $file"
+            rm -f "$fixed_file"
         fi
     else
         echo "Valid UTF-8: $file"
@@ -61,17 +60,11 @@ function normalize_path() {
 
 # Build command function
 function build-command {
-    if [ -z $2 ]; then
-        OUTPUT_FILE="out.json"
-    else
-        OUTPUT_FILE="$2"
-    fi
-
-    run-command $1 --build-only "${@:3}"
+    local output_file=${2:-"out.json"}
+    run-command "$1" --build-only "${@:3}"
     rc=$?
 
-    [ $rc -eq 0 ] && cp "$P4APP_LOGDIR/program.json" $OUTPUT_FILE
-
+    [ $rc -eq 0 ] && cp "$P4APP_LOGDIR/program.json" "$output_file"
     exit $rc
 }
 
@@ -81,13 +74,14 @@ function run-p4app {
     P4APP_NAME=${P4APP_NAME:-"p4app_$RANDOM"}
     docker run --platform linux/amd64 --privileged --interactive --tty --rm \
         --name "$P4APP_NAME" \
-        -v $1:$APP_TO_RUN \
-        -v "$P4APP_LOGDIR":/tmp/p4app_logs \
+        -v "$1:$APP_TO_RUN" \
+        -v "$P4APP_LOGDIR:/tmp/p4app_logs" \
         $P4APP_CONTAINER_ARGS \
-        $P4APP_IMAGE $APP_TO_RUN "${@:2}"
+        $P4APP_IMAGE "$APP_TO_RUN" "${@:2}"
 }
 
 # Run command function to handle .p4app packages
+# Updated run-command to create tar without extended headers (pax)
 function run-command {
     if [ -d "$1" ]; then
         PACKAGE_DIR=$(normalize_path "$1")
@@ -98,7 +92,8 @@ function run-command {
             check_and_fix_utf8 "$file"
         done
 
-        tar -czf "$APP_FILE" -C "$PACKAGE_DIR" .
+        # Package the files without pax headers (extended headers)
+        tar --format=ustar -czf "$APP_FILE" -C "$PACKAGE_DIR" .
         run-p4app "$APP_FILE" "${@:2}"
         rc=$?
         rm "$APP_FILE"
@@ -116,7 +111,6 @@ function run-command {
     fi
     return $rc
 }
-
 # Pack command function to compress a directory
 function pack-command {
     if [ -d "$1" ]; then
@@ -164,9 +158,9 @@ function exec-command {
     fi
 
     if [ -t 1 ]; then
-        docker exec -it $container_id ${@:1}
+        docker exec -it $container_id "${@:1}"
     else
-        docker exec $container_id ${@:1}
+        docker exec $container_id "${@:1}"
     fi
 }
 
