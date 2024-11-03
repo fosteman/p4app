@@ -8,13 +8,15 @@ control egress(inout headers hdr, inout metadata meta, inout standard_metadata_t
     action rewrite_mac(bit<48> smac) {
         hdr.ethernet.srcAddr = smac;
     }
-    action _drop() {
+
+    action drop_packet() {
         mark_to_drop(standard_metadata);
     }
+
     table send_frame {
         actions = {
             rewrite_mac;
-            _drop;
+            drop_packet;
             NoAction;
         }
         key = {
@@ -23,28 +25,32 @@ control egress(inout headers hdr, inout metadata meta, inout standard_metadata_t
         size = 256;
         default_action = NoAction();
     }
+
     apply {
         if (hdr.ipv4.isValid()) {
-          send_frame.apply();
+            send_frame.apply();
         }
     }
 }
 
 control ingress(inout headers hdr, inout metadata meta, inout standard_metadata_t standard_metadata) {
-    action _drop() {
+    action drop_packet() {
         mark_to_drop(standard_metadata);
     }
+
     action set_nhop(bit<32> nhop_ipv4, bit<9> port) {
         meta.ingress_metadata.nhop_ipv4 = nhop_ipv4;
         standard_metadata.egress_spec = port;
-        hdr.ipv4.ttl = hdr.ipv4.ttl + 8w255;
+        hdr.ipv4.ttl = hdr.ipv4.ttl + 8w255; // Consider conditions for TTL increment
     }
+
     action set_dmac(bit<48> dmac) {
         hdr.ethernet.dstAddr = dmac;
     }
+
     table ipv4_lpm {
         actions = {
-            _drop;
+            drop_packet;
             set_nhop;
             NoAction;
         }
@@ -54,10 +60,11 @@ control ingress(inout headers hdr, inout metadata meta, inout standard_metadata_
         size = 1024;
         default_action = NoAction();
     }
+
     table forward {
         actions = {
             set_dmac;
-            _drop;
+            drop_packet;
             NoAction;
         }
         key = {
@@ -66,10 +73,11 @@ control ingress(inout headers hdr, inout metadata meta, inout standard_metadata_
         size = 512;
         default_action = NoAction();
     }
+
     apply {
         if (hdr.ipv4.isValid()) {
-          ipv4_lpm.apply();
-          forward.apply();
+            ipv4_lpm.apply();
+            forward.apply();
         }
     }
 }
