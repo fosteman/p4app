@@ -104,6 +104,9 @@ function run-command {
         PACKAGE_DIR=$(normalize_path "$1")
         APP_FILE=$(mktemp /tmp/p4app.tar.gz.XXXXXX)
 
+        # Create backup of the package before compilation
+        create_backup_object "$PACKAGE_DIR"
+
         # Check and fix encoding for each file in the directory
         for file in "$PACKAGE_DIR"/*; do
             check_and_fix_utf8 "$file"
@@ -117,6 +120,9 @@ function run-command {
     elif [ -f "$1" ]; then
         APP_FILE=$(get_abs_filename "$1")
 
+        # Create backup of the single file
+        create_backup_object "$(dirname "$APP_FILE")"
+
         # Check and fix encoding for the file
         check_and_fix_utf8 "$APP_FILE"
 
@@ -129,8 +135,36 @@ function run-command {
     return $rc
 }
 
-# Other command functions
-# ...
+# Function to create backup of each file in the package
+function create_backup_object() {
+    local package_dir="$1"
+    local backup_file="backup_$(basename "$package_dir").json"
+
+    # Create a JSON array to hold all file information
+    echo "[" > "$backup_file"
+
+    # Iterate through files and add content with headers to JSON object
+    for file in "$package_dir"/*; do
+        if [ -f "$file" ]; then
+            local filename=$(basename "$file")
+            local extension="${filename##*.}"
+            local header="# File: $filename"
+
+            # Read the content, escape quotes for JSON, and add to JSON format
+            local content=$(sed 's/"/\\"/g' "$file" | awk '{print "\"" $0 "\","}' | tr '\n' ' ')
+            content="[ ${content%,} ]" # Remove trailing comma and format as array
+
+            # Append file info as JSON object
+            echo "{ \"header\": \"$header\", \"extension\": \"$extension\", \"content\": $content }," >> "$backup_file"
+        fi
+    done
+
+    # Close JSON array
+    sed -i '' '$ s/,$//' "$backup_file" # Remove trailing comma for last item
+    echo "]" >> "$backup_file"
+
+    echo "Backup created at $backup_file"
+}
 
 # Main case selector
 case "$1" in
