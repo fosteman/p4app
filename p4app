@@ -5,6 +5,20 @@ export LANG=en_US.UTF-8
 P4APP_IMAGE=${P4APP_IMAGE:-p4lang/p4app:latest}
 P4APP_CONTAINER_ARGS=${P4APP_CONTAINER_ARGS:-""}
 
+# Ensure QEMU is set up for cross-platform execution
+function setup_qemu() {
+    # Check if QEMU is already configured
+    if [[ ! $(docker run --rm --privileged multiarch/qemu-user-static --reset -p yes) ]]; then
+        echo "Setting up QEMU for cross-platform Docker support."
+        docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+    fi
+}
+
+# Run QEMU setup if on arm64 platform
+if [[ "$(uname -m)" == "aarch64" ]]; then
+    setup_qemu
+fi
+
 # Function to get absolute path
 myrealpath() {
     [[ $1 = /* ]] && echo "$1" || echo "$PWD/${1#./}"
@@ -65,7 +79,7 @@ function build-command {
 function run-p4app {
     APP_TO_RUN=/tmp/app.tar.gz
     P4APP_NAME=${P4APP_NAME:-"p4app_$RANDOM"}
-    docker run --platform linux/arm64 --privileged --interactive --tty --rm \
+    docker run --platform linux/amd64 --privileged --interactive --tty --rm \
         --name "$P4APP_NAME" \
         -v $1:$APP_TO_RUN \
         -v "$P4APP_LOGDIR":/tmp/p4app_logs \
