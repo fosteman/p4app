@@ -58,6 +58,20 @@ control ingress(inout headers hdr, inout metadata meta, inout standard_metadata_
         meta.paxos_metadata.set_drop = 0;
     }
 
+    action _drop() {
+            mark_to_drop(standard_metadata);
+        }
+
+    table transport_tbl {
+                key = { meta.paxos_metadata.set_drop : exact; }
+                actions = {
+                    _drop;
+                    // set_UDPdstPort;
+                }
+                size = 2;
+                default_action = _drop();
+    }
+
     table forward_tbl {
         key = {meta.paxos_metadata.set_drop : exact; }
         actions = {
@@ -78,11 +92,11 @@ control ingress(inout headers hdr, inout metadata meta, inout standard_metadata_
             }
             forward_tbl.apply();
         }
+        transport_tbl.apply();
     }
 }
 
 control egress(inout headers hdr, inout metadata meta, inout standard_metadata_t standard_metadata) {
-
     action _drop() {
         mark_to_drop(standard_metadata);
     }
@@ -95,10 +109,10 @@ control egress(inout headers hdr, inout metadata meta, inout standard_metadata_t
         key = { meta.paxos_metadata.set_drop : exact; }
         actions = {
             _drop;
-             set_UDPdstPort;
+            set_UDPdstPort;
         }
         size = 2;
-        default_action =  _drop();
+        default_action = _drop();
     }
 
     apply {

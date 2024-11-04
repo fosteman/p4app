@@ -1,3 +1,9 @@
+table_add transport_tbl _drop 1
+table_add transport_tbl set_UDPdstPort 0 => 0xDDD5
+table_add forward_tbl forward 0 => 2
+table_add acceptor_tbl handle_1a 0 =>
+table_add acceptor_tbl handle_2a 2 =>
+
 add transport_tbl paxos_metadata.set_drop:0x1 _drop()
 add transport_tbl paxos_metadata.set_drop:0x0 set_UDPdstPort(dstPort:0xDDD5)
 add forward_tbl paxos_metadata.set_drop:0x0 forward(port: 2)
