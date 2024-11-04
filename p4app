@@ -107,11 +107,6 @@ function run-command {
         # Create backup of the package before compilation
         create_backup_object "$PACKAGE_DIR"
 
-        # Check and fix encoding for each file in the directory
-        for file in "$PACKAGE_DIR"/*; do
-            check_and_fix_utf8 "$file"
-        done
-
         # Package files without extended pax headers
         tar --format=ustar -czf "$APP_FILE" -C "$PACKAGE_DIR" .
         run-p4app "$APP_FILE" "${@:2}"
@@ -135,33 +130,26 @@ function run-command {
     return $rc
 }
 
-# Function to create backup of each file in the package
 function create_backup_object() {
     local package_dir="$1"
-    local backup_file="backup_$(basename "$package_dir").json"
+    local backup_file="backup_$(basename "$package_dir").txt"
 
-    # Create a JSON array to hold all file information
-    echo "[" > "$backup_file"
-
-    # Iterate through files and add content with headers to JSON object
+    echo "This is the code:\n" >> "$backup_file"
+    # Iterate through files in the package directory and add headers and content to the TXT file
     for file in "$package_dir"/*; do
         if [ -f "$file" ]; then
             local filename=$(basename "$file")
-            local extension="${filename##*.}"
-            local header="# File: $filename"
 
-            # Read the content, escape quotes for JSON, and add to JSON format
-            local content=$(sed 's/"/\\"/g' "$file" | awk '{print "\"" $0 "\","}' | tr '\n' ' ')
-            content="[ ${content%,} ]" # Remove trailing comma and format as array
+            # Write the file header to the backup file
+            echo "$filename" >> "$backup_file"
 
-            # Append file info as JSON object
-            echo "{ \"header\": \"$header\", \"extension\": \"$extension\", \"content\": $content }," >> "$backup_file"
+            # Append file content to the backup file
+            cat "$file" >> "$backup_file"
+
+            # Add a newline after each file's content for separation
+            echo -e "\n" >> "$backup_file"
         fi
     done
-
-    # Close JSON array
-    sed -i '' '$ s/,$//' "$backup_file" # Remove trailing comma for last item
-    echo "]" >> "$backup_file"
 
     echo "Backup created at $backup_file"
 }
